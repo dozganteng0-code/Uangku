@@ -71,6 +71,24 @@ export default {
         return Response.json({ success: true }, { headers: corsHeaders() });
       }
 
+      if (path.startsWith("/api/categories/") && method === "DELETE") {
+        const name = decodeURIComponent(path.split("/").pop());
+        await env.DB.prepare("DELETE FROM categories WHERE name = ?").bind(name).run();
+        return Response.json({ success: true }, { headers: corsHeaders() });
+      }
+
+      if (path.startsWith("/api/categories/") && method === "PUT") {
+        const oldName = decodeURIComponent(path.split("/").pop());
+        const { newName } = await request.json();
+        
+        // Update category name
+        await env.DB.prepare("UPDATE categories SET name = ? WHERE name = ?").bind(newName, oldName).run();
+        // Also update all notes referencing the old name
+        await env.DB.prepare("UPDATE notes SET category = ? WHERE category = ?").bind(newName, oldName).run();
+        
+        return Response.json({ success: true }, { headers: corsHeaders() });
+      }
+
       // --- API FINANCE CATEGORIES ---
       if (path === "/api/finance-categories" && method === "GET") {
         const { results } = await env.DB.prepare("SELECT name FROM finance_categories").all();

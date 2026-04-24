@@ -40,6 +40,7 @@ import {
   CalendarDays,
   MoreVertical,
   ChevronDown,
+  ChevronUp,
   Tags,
   Hash,
   ChevronLeft,
@@ -81,6 +82,16 @@ const parseCategory = (raw: string) => {
   return { raw, name: raw, type: "all" as const };
 };
 
+const getCategoryDisplayName = (raw: string, financeCategories: string[]) => {
+  const found = financeCategories.find(c => c === raw || c === `expense::${raw}` || c === `income::${raw}`);
+  const parsed = parseCategory(raw);
+  
+  if (!found) {
+      return `Lainnya`;
+  }
+  return parsed.name;
+};
+
 const BudgetsTab = ({
   budgets,
   setBudgets,
@@ -89,8 +100,8 @@ const BudgetsTab = ({
   trackedCategories,
   setTrackedCategories,
 }: {
-  budgets: Record<string, number>;
-  setBudgets: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  budgets: Record<string, { amount: number; period: 'monthly' | 'yearly' }>;
+  setBudgets: React.Dispatch<React.SetStateAction<Record<string, { amount: number; period: 'monthly' | 'yearly' }>>>;
   financeRecords: FinanceRecord[];
   categories: string[];
   trackedCategories: string[];
@@ -104,20 +115,32 @@ const BudgetsTab = ({
     (c) => !trackedCategories.includes(c.raw),
   );
 
-  const getSpent = (category: string) => {
+  const getSpent = (category: string, period: 'monthly' | 'yearly') => {
+    const now = new Date();
     return financeRecords
-      .filter((r) => r.category === category && r.type === "expense")
+      .filter((r) => {
+        if (r.category !== category || r.type !== "expense") return false;
+        const date = new Date(r.date);
+        if (period === 'monthly') {
+          return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+        } else {
+          return date.getFullYear() === now.getFullYear();
+        }
+      })
       .reduce((sum, r) => sum + r.amount, 0);
   };
 
-  const handleBudgetChange = (category: string, value: string) => {
-    const num = parseFloat(value) || 0;
-    setBudgets((prev) => ({ ...prev, [category]: num }));
+  const handleBudgetChange = (category: string, field: 'amount' | 'period', value: string | 'monthly' | 'yearly') => {
+    setBudgets((prev) => {
+      const current = prev[category] || { amount: 0, period: 'monthly' };
+      return { ...prev, [category]: { ...current, [field]: field === 'amount' ? parseFloat(value as string) || 0 : value } };
+    });
   };
 
   const addTrackedCategory = (category: string) => {
     if (!trackedCategories.includes(category)) {
       setTrackedCategories((prev) => [...prev, category]);
+      setBudgets(prev => ({...prev, [category]: { amount: 0, period: 'monthly' }}));
     }
   };
 
@@ -159,9 +182,9 @@ const BudgetsTab = ({
           const category = expenseCategories.find((c) => c.raw === raw);
           if (!category) return null;
           
-          const spent = getSpent(category.raw);
-          const limit = budgets[category.raw] || 0;
-          const percentage = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+          const budget = budgets[category.raw] || { amount: 0, period: 'monthly' };
+          const spent = getSpent(category.raw, budget.period);
+          const percentage = budget.amount > 0 ? Math.min((spent / budget.amount) * 100, 100) : 0;
           
           return (
             <div key={category.raw} className="bg-white p-4 rounded-xl border border-slate-200">
@@ -169,14 +192,22 @@ const BudgetsTab = ({
                 <label className="font-bold text-slate-700">{category.name}</label>
                 <div className="flex items-center gap-2">
                   <button onClick={() => removeTrackedCategory(category.raw)} className="text-xs text-rose-500 hover:text-rose-700">Remove</button>
-                  <span className="text-xs text-rose-500">Rp {spent.toLocaleString()}</span>
+                  <span className="text-xs text-rose-500">Rp {spent.toLocaleString()} / </span>
                   <input
                     type="number"
-                    value={limit === 0 ? "" : limit}
-                    onChange={(e) => handleBudgetChange(category.raw, e.target.value)}
-                    placeholder="Set budget"
-                    className="w-24 text-right p-1 border rounded text-xs"
+                    value={budget.amount === 0 ? "" : budget.amount}
+                    onChange={(e) => handleBudgetChange(category.raw, 'amount', e.target.value)}
+                    placeholder="Limit"
+                    className="w-20 text-right p-1 border rounded text-xs"
                   />
+                  <select
+                    value={budget.period}
+                    onChange={(e) => handleBudgetChange(category.raw, 'period', e.target.value as 'monthly' | 'yearly')}
+                    className="text-xs border rounded p-1"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
                 </div>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2">
@@ -185,6 +216,7 @@ const BudgetsTab = ({
                   style={{ width: `${percentage}%` }}
                 />
               </div>
+              <p className="text-xs text-slate-500 mt-1">{percentage.toFixed(0)}% used</p>
             </div>
           );
         })}
@@ -241,12 +273,15 @@ export default function App() {
       JSON.stringify(financeCategories),
     );
   }, [financeCategories]);
-  const [newFinance, setNewFinance] = useState({
-    type: "expense" as "income" | "expense",
-    amount: "",
-    description: "",
-    category: "Makanan",
-    date: new Date().toISOString().split("T")[0],
+  const [newFinance, setNewFinance] = useState(() => {
+    const savedType = localStorage.getItem("last_transaction_type");
+    return {
+      type: (savedType === "income" || savedType === "expense" ? savedType : "expense") as "income" | "expense",
+      amount: "",
+      description: "",
+      category: "Makanan",
+      date: new Date().toISOString().split("T")[0],
+    };
   });
   const [editingFinanceId, setEditingFinanceId] = useState<string | null>(null);
   const [editFinance, setEditFinance] = useState({
@@ -302,6 +337,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{
+    key: "date" | "amount" | "category";
+    direction: "asc" | "desc";
+  }>({ key: "date", direction: "desc" });
   const itemsPerPage = 30;
 
   const [toast, setToast] = useState<{
@@ -325,7 +364,7 @@ export default function App() {
   const [editingCatName, setEditingCatName] = useState("");
   const addDescRef = useRef<HTMLTextAreaElement>(null);
   const editDescRef = useRef<HTMLTextAreaElement>(null);
-  const [budgets, setBudgets] = useState<Record<string, number>>(() => {
+  const [budgets, setBudgets] = useState<Record<string, { amount: number; period: 'monthly' | 'yearly' }>>(() => {
     const saved = localStorage.getItem("finance_budgets");
     return saved ? JSON.parse(saved) : {};
   });
@@ -833,9 +872,17 @@ export default function App() {
       }
     }
 
-    return records.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
+    return records.sort((a, b) => {
+      let comparison = 0;
+      if (sortConfig.key === "date") {
+        comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+      } else if (sortConfig.key === "amount") {
+        comparison = a.amount - b.amount;
+      } else if (sortConfig.key === "category") {
+        comparison = a.category.localeCompare(b.category);
+      }
+      return sortConfig.direction === "asc" ? comparison : -comparison;
+    });
   }, [
     financeRecords,
     financeViewMode,
@@ -844,6 +891,7 @@ export default function App() {
     filterEndDate,
     filterCategory,
     searchQuery,
+    sortConfig,
   ]);
 
   // Reset current page when filters change
@@ -1402,24 +1450,26 @@ export default function App() {
                                     <div className="flex bg-slate-50 p-1 rounded-xl">
                                       <button
                                         type="button"
-                                      onClick={() =>
+                                      onClick={() => {
                                         setNewFinance({
                                           ...newFinance,
                                           type: "income",
-                                        })
-                                      }
+                                        });
+                                        localStorage.setItem("last_transaction_type", "income");
+                                      }}
                                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${newFinance.type === "income" ? "bg-white text-emerald-600 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
                                     >
                                       <TrendingUp size={14} /> PEMASUKAN
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() =>
+                                      onClick={() => {
                                         setNewFinance({
                                           ...newFinance,
                                           type: "expense",
-                                        })
-                                      }
+                                        });
+                                        localStorage.setItem("last_transaction_type", "expense");
+                                      }}
                                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${newFinance.type === "expense" ? "bg-white text-rose-500 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
                                     >
                                       <TrendingDown size={14} /> PENGELUARAN
@@ -1511,7 +1561,7 @@ export default function App() {
                                         .map((cat) => (
                                           <option
                                             key={cat.raw}
-                                            value={cat.name}
+                                            value={cat.raw}
                                           >
                                             {cat.name}
                                           </option>
@@ -1727,14 +1777,46 @@ export default function App() {
                             exit={{ height: 0, opacity: 0 }}
                             className="overflow-hidden"
                           >
-                            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                              <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    Pengaturan Filter
-                                  </h4>
-                                </div>
+                            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                  Pengaturan Filter & Sort
+                                </h4>
+                              </div>
+                              
+                              <div className="flex gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+                                <span className="text-xs font-bold text-slate-500 mr-2">Sort:</span>
+                                {["date", "amount", "category"].map((key) => (
+                                  <button
+                                    key={key}
+                                    onClick={() =>
+                                      setSortConfig((s) => ({
+                                        key: key as any,
+                                        direction:
+                                          s.key === key && s.direction === "desc"
+                                            ? "asc"
+                                            : "desc",
+                                      }))
+                                    }
+                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                      sortConfig.key === key
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    {key.charAt(0).toUpperCase() + key.slice(1)}
+                                    {sortConfig.key === key &&
+                                      (sortConfig.direction === "desc" ? (
+                                        <ChevronDown size={12} />
+                                      ) : (
+                                        <ChevronUp size={12} />
+                                      ))}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center justify-end">
                                 <button
                                   onClick={() => {
                                     setFilterStartDate("");
@@ -2076,7 +2158,7 @@ export default function App() {
                                                     </h4>
                                                     <div className="flex items-center gap-1.5 mt-[1px] overflow-hidden">
                                                       <span className="text-[7.5px] font-black uppercase tracking-wider text-slate-500">
-                                                        {record.category}
+                                                        {getCategoryDisplayName(record.category, financeCategories)}
                                                       </span>
                                                       <span className="text-slate-300 text-[7px]">
                                                         •
@@ -2326,7 +2408,7 @@ export default function App() {
                                                             Kategori
                                                           </p>
                                                           <p className="text-[10px] font-bold text-slate-900">
-                                                            {record.category}
+                                                            {getCategoryDisplayName(record.category, financeCategories)}
                                                           </p>
                                                         </div>
                                                         <div className="bg-white p-3 rounded-lg border border-slate-100">
