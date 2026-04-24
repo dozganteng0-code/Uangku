@@ -67,12 +67,7 @@ import * as XLSX from "xlsx";
 import { FinanceRecord } from "./types";
 
 // Auto-detect if running on AI Studio and use the local mock server if needed
-const DEFAULT_API_URL =
-  window.location.hostname === "localhost" ||
-  window.location.hostname.includes("ais-dev") ||
-  window.location.hostname.includes("ais-pre")
-    ? "" // use relative path for local mock server
-    : "https://worker-catatan.dozganteng0.workers.dev";
+const DEFAULT_API_URL = "";
 
 const parseCategory = (raw: string) => {
   if (raw.startsWith("income::"))
