@@ -1,0 +1,6 @@
+{
+  "name": "CatatanKu - Asisten Catatan Pribadi",
+  "description": "Web app asisten catatan pribadi yang modern dengan kategori Tugas, Belanja, dan lainnya. Dibangun untuk Cloudflare Workers dan D1.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
