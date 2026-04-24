@@ -131,7 +131,7 @@ const BudgetsTab = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <h2 className="text-2xl font-black text-slate-800">Budgeting</h2>
       
       <div className="bg-white p-4 rounded-xl border border-slate-200">
@@ -154,7 +154,7 @@ const BudgetsTab = ({
         </select>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-2">
         {trackedCategories.map((raw) => {
           const category = expenseCategories.find((c) => c.raw === raw);
           if (!category) return null;
@@ -302,7 +302,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const itemsPerPage = 30;
 
   const [toast, setToast] = useState<{
     show: boolean;
@@ -1282,6 +1282,13 @@ export default function App() {
               className={`${isRefreshing ? "animate-spin" : ""}`}
             />
           </button>
+          <button
+            onClick={() => setActiveTab("settings")}
+            className="md:hidden flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-900 transition-all group"
+            title="Settings"
+          >
+            <Settings size={16} />
+          </button>
         </div>
       </header>
 
@@ -1334,7 +1341,7 @@ export default function App() {
         <div className="flex-1 min-w-0 flex flex-col bg-slate-50 overflow-hidden relative">
           <div className="flex-1 overflow-y-auto noscrollbar pb-20">
             {/* Finance View */}
-            <main className="max-w-xl mx-auto px-4 md:px-6 py-6 md:py-12">
+            <main className="max-w-xl mx-auto px-4 md:px-6 py-4 md:py-8">
               <AnimatePresence mode="wait">
                 {activeTab === "finance" ? (
                   <motion.div
@@ -3100,12 +3107,6 @@ export default function App() {
           onClick={() => setActiveTab("reports")}
           icon={<BarChart3 size={20} />}
           label="Laporan"
-        />
-        <MobileNavLink
-          active={activeTab === "settings"}
-          onClick={() => setActiveTab("settings")}
-          icon={<Settings size={20} />}
-          label="Opsi"
         />
       </nav>
     </div>
