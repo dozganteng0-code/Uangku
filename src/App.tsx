@@ -342,11 +342,21 @@ export default function App() {
     show: boolean;
     message: string;
     type: "success" | "error";
+    id?: number;
   }>({
     show: false,
     message: "",
     type: "success",
   });
+
+  useEffect(() => {
+    if (toast.show) {
+      const timer = setTimeout(() => {
+        setToast((prev) => ({ ...prev, show: false }));
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast.show, toast.message, toast.type, toast.id]);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     show: boolean;
     type: "record" | "category" | null;
@@ -517,8 +527,18 @@ export default function App() {
   });
 
   useEffect(() => {
-    fetchFinance();
-    fetchFinanceCategories();
+    if (connectionStatus !== "connected" || !workerUrl) {
+      setLoading(false);
+      return;
+    }
+    
+    const initFetch = async () => {
+      setLoading(true);
+      await Promise.all([fetchFinance(), fetchFinanceCategories()]);
+      setLoading(false);
+    };
+
+    initFetch();
 
     // Load sidebar state
     const savedSidebar = localStorage.getItem("sidebar_open");
@@ -531,7 +551,7 @@ export default function App() {
       fetchFinance();
     }, 60000);
     return () => clearInterval(interval);
-  }, [workerUrl]);
+  }, [workerUrl, connectionStatus]);
 
   useEffect(() => {
     localStorage.setItem("sidebar_open", String(isSidebarOpen));
@@ -549,7 +569,7 @@ export default function App() {
   }, [collapsedCategories]);
 
   const fetchFinanceCategories = async () => {
-    if (!workerUrl) return;
+    if (!workerUrl || connectionStatus !== "connected") return;
     try {
       const res = await fetch(`${workerUrl}/api/finance-categories`);
       if (res.ok) {
@@ -576,13 +596,9 @@ export default function App() {
             setFinanceCategories(data);
           }
         }
-        setConnectionStatus("connected");
-      } else {
-        setConnectionStatus("error");
       }
     } catch (err) {
       console.error("Error fetching finance categories:", err);
-      setConnectionStatus("error");
     }
   };
 
@@ -704,6 +720,7 @@ export default function App() {
   };
 
   const fetchFinance = async () => {
+    if (!workerUrl || connectionStatus !== "connected") return;
     try {
       const res = await fetch(`${workerUrl}/api/finance`);
       if (res.ok) {
@@ -801,6 +818,12 @@ export default function App() {
   };
 
   const testConnection = async (url: string) => {
+    if (!url.startsWith("https://")) {
+      setConnectionStatus("error");
+      showToast("URL Worker harus dimulai dengan https://", "error");
+      return false;
+    }
+
     setConnectionStatus("testing");
     // Normalize URL: remove trailing slashes
     const normalizedUrl = url.replace(/\/+$/, "");
@@ -812,11 +835,14 @@ export default function App() {
         setConnectionStatus("connected");
         localStorage.setItem("worker_url", normalizedUrl);
         setWorkerUrl(normalizedUrl);
+        showToast("Koneksi ke worker berhasil!", "success");
         return true;
       }
       setConnectionStatus("error");
+      showToast("Gagal terhubung ke worker. Pastikan URL benar dan Worker aktif.", "error");
     } catch (e) {
       setConnectionStatus("error");
+      showToast("Terjadi kesalahan koneksi. Pastikan URL valid dan dapat diakses.", "error");
     }
     return false;
   };
@@ -1147,10 +1173,7 @@ export default function App() {
     message: string,
     type: "success" | "error" = "success",
   ) => {
-    setToast({ show: true, message, type });
-    setTimeout(() => {
-      setToast((prev) => ({ ...prev, show: false }));
-    }, 3000);
+    setToast({ show: true, message, type, id: Date.now() });
   };
 
   return (
@@ -1396,7 +1419,13 @@ export default function App() {
                   >
                     {/* Add Button */}
                     <button
-                      onClick={() => setIsFormVisible(true)}
+                      onClick={() => {
+                        if (!workerUrl) {
+                          showToast("Silakan masukkan URL Worker di Pengaturan!", "error");
+                          return;
+                        }
+                        setIsFormVisible(true);
+                      }}
                       className="w-full flex items-center justify-center gap-3 p-4 mb-6 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-lg active:scale-95 group font-black uppercase tracking-widest text-xs"
                     >
                       <Plus size={18} />
