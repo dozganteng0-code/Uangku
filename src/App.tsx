@@ -235,6 +235,13 @@ export default function App() {
     const handleOffline = () => setIsOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+
+    // Auto-connect if worker_url exists
+    const savedUrl = localStorage.getItem("worker_url");
+    if (savedUrl && (connectionStatus === "idle" || connectionStatus === "error")) {
+      testConnection(savedUrl);
+    }
+
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
@@ -568,6 +575,24 @@ export default function App() {
     );
   }, [collapsedCategories]);
 
+  const isIncomeItem = (type: any, category?: string) => {
+    const t = String(type || "").toLowerCase().trim();
+    if (t === "income" || t === "pemasukan") return true;
+    if (typeof category === "string" && category.startsWith("income::")) return true;
+    return false;
+  };
+
+  const isExpenseItem = (type: any, category?: string) => {
+    const t = String(type || "").toLowerCase().trim();
+    if (t === "expense" || t === "pengeluaran") return true;
+    if (typeof category === "string" && category.startsWith("expense::")) return true;
+    return false;
+  };
+
+  const getFinanceTypeDisplay = (type: any, category?: string) => {
+    return isIncomeItem(type, category) ? "Pemasukan" : "Pengeluaran";
+  };
+
   const fetchFinanceCategories = async () => {
     if (!workerUrl || connectionStatus !== "connected") return;
     try {
@@ -725,7 +750,10 @@ export default function App() {
       const res = await fetch(`${workerUrl}/api/finance`);
       if (res.ok) {
         const data = await res.json();
+        console.log("Fetched finance records data:", data);
         setFinanceRecords(data);
+      } else {
+        console.error("Failed to fetch finance records, status:", res.status);
       }
     } catch (err) {
       console.error("Error fetching finance:", err);
@@ -737,13 +765,16 @@ export default function App() {
     if (!newFinance.amount) return;
 
     try {
-      const response = await fetch(`${workerUrl}/api/finance`, {
+      const payload = {
+          ...newFinance,
+          type: newFinance.type === 'income' ? 'income' : 'expense',
+          amount: parseFloat(newFinance.amount),
+        };
+        console.log("Submitting record:", payload);
+        const response = await fetch(`${workerUrl}/api/finance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newFinance,
-          amount: parseFloat(newFinance.amount),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -761,17 +792,20 @@ export default function App() {
     if (!editFinance.amount || !editingFinanceId) return;
 
     try {
-      const response = await fetch(
+        const payload = {
+            ...editFinance,
+            type: editFinance.type === 'income' ? 'income' : 'expense',
+            amount: parseFloat(editFinance.amount),
+            date: new Date().toISOString().split("T")[0],
+            createdAt: Date.now(),
+          };
+          console.log("Updating record:", payload);
+          const response = await fetch(
         `${workerUrl}/api/finance/${editingFinanceId}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...editFinance,
-            amount: parseFloat(editFinance.amount),
-            date: new Date().toISOString().split("T")[0],
-            createdAt: Date.now(),
-          }),
+          body: JSON.stringify(payload),
         },
       );
 
@@ -853,7 +887,11 @@ export default function App() {
 
     // View mode filter (all/income/expense)
     if (financeViewMode !== "all") {
-      records = records.filter((r) => r.type === financeViewMode);
+      records = records.filter((r) => {
+          if (financeViewMode === "income") return isIncomeItem(r.type, r.category);
+          if (financeViewMode === "expense") return isExpenseItem(r.type, r.category);
+          return true;
+      });
     }
 
     // Category filter
@@ -939,10 +977,10 @@ export default function App() {
   // Derive stats for current filtered set
   const stats = React.useMemo(() => {
     const income = filteredRecords
-      .filter((r) => r.type === "income")
+      .filter((r) => isIncomeItem(r.type, r.category))
       .reduce((sum, r) => sum + r.amount, 0);
     const expense = filteredRecords
-      .filter((r) => r.type === "expense")
+      .filter((r) => isExpenseItem(r.type, r.category))
       .reduce((sum, r) => sum + r.amount, 0);
     return { income, expense, balance: income - expense };
   }, [filteredRecords]);
@@ -981,7 +1019,11 @@ export default function App() {
 
     // Filter by Type
     if (reportConfig.selectedType !== "all") {
-      filtered = filtered.filter((r) => r.type === reportConfig.selectedType);
+      filtered = filtered.filter((r) => {
+          if (reportConfig.selectedType === "income") return isIncomeItem(r.type, r.category);
+          if (reportConfig.selectedType === "expense") return isExpenseItem(r.type, r.category);
+          return true;
+      });
     }
 
     // Filter by Category
@@ -1007,14 +1049,14 @@ export default function App() {
 
   const topIncomeRecords = React.useMemo(() => {
     return [...reportFilteredRecords]
-      .filter((r) => r.type === "income")
+      .filter((r) => isIncomeItem(r.type, r.category))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
   }, [reportFilteredRecords]);
 
   const topExpenseRecords = React.useMemo(() => {
     return [...reportFilteredRecords]
-      .filter((r) => r.type === "expense")
+      .filter((r) => isExpenseItem(r.type, r.category))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
   }, [reportFilteredRecords]);
@@ -1047,19 +1089,19 @@ export default function App() {
 
     groupedByMonth.forEach((monthRecords, monthName) => {
       const totalInc = monthRecords
-        .filter((x) => x.type === "income")
+        .filter((x) => isIncomeItem(x.type, x.category))
         .reduce((sum, x) => sum + x.amount, 0);
       const totalExp = monthRecords
-        .filter((x) => x.type === "expense")
+        .filter((x) => isExpenseItem(x.type, x.category))
         .reduce((sum, x) => sum + x.amount, 0);
 
       const topInc = [...monthRecords]
-        .filter((r) => r.type === "income")
+        .filter((r) => isIncomeItem(r.type, r.category))
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
 
       const topExp = [...monthRecords]
-        .filter((r) => r.type === "expense")
+        .filter((r) => isExpenseItem(r.type, r.category))
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
 
@@ -1103,7 +1145,7 @@ export default function App() {
         aoa.push([
           formatDate(r.date),
           parseCategory(r.category).name,
-          r.type === "income" ? "Pemasukan" : "Pengeluaran",
+          getFinanceTypeDisplay(r.type, r.category),
           r.amount,
           r.description || "-",
         ]);
@@ -1481,7 +1523,7 @@ export default function App() {
                                         });
                                         localStorage.setItem("last_transaction_type", "income");
                                       }}
-                                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${newFinance.type === "income" ? "bg-white text-emerald-600 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
+                                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${isIncomeItem(newFinance.type, newFinance.category) ? "bg-white text-emerald-600 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
                                     >
                                       <TrendingUp size={14} /> PEMASUKAN
                                     </button>
@@ -1494,7 +1536,7 @@ export default function App() {
                                         });
                                         localStorage.setItem("last_transaction_type", "expense");
                                       }}
-                                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${newFinance.type === "expense" ? "bg-white text-rose-500 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
+                                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[10px] font-bold transition-all ${isExpenseItem(newFinance.type, newFinance.category) ? "bg-white text-rose-500 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
                                     >
                                       <TrendingDown size={14} /> PENGELUARAN
                                     </button>
@@ -1970,10 +2012,10 @@ export default function App() {
                         })
                         .map(([month, records]) => {
                           const monthIncome = (records as FinanceRecord[])
-                            .filter((r) => r.type === "income")
+                            .filter((r) => isIncomeItem(r.type, r.category))
                             .reduce((sum, r) => sum + r.amount, 0);
                           const monthExpense = (records as FinanceRecord[])
-                            .filter((r) => r.type === "expense")
+                            .filter((r) => isExpenseItem(r.type, r.category))
                             .reduce((sum, r) => sum + r.amount, 0);
                           const isCollapsed = collapsedMonths.includes(month);
                           const canToggle = selectedDateFilter === null;
@@ -2100,7 +2142,7 @@ export default function App() {
                                                       if (!acc[r.category])
                                                         acc[r.category] = 0;
                                                       acc[r.category] +=
-                                                        r.type === "income"
+                                                        isIncomeItem(r.type, r.category)
                                                           ? r.amount
                                                           : -r.amount;
                                                       return acc;
@@ -2159,10 +2201,9 @@ export default function App() {
                                               <div className="flex flex-row items-center justify-between gap-2 px-4 py-2">
                                                 <div className="flex flex-row items-center gap-2.5 overflow-hidden">
                                                   <div
-                                                    className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${record.type === "income" ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}
+                                                    className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${isIncomeItem(record.type, record.category) ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}
                                                   >
-                                                    {record.type ===
-                                                    "income" ? (
+                                                    {isIncomeItem(record.type, record.category) ? (
                                                       <TrendingUp size={14} />
                                                     ) : (
                                                       <TrendingDown size={14} />
@@ -2170,13 +2211,13 @@ export default function App() {
                                                   </div>
                                                   <div className="flex flex-col min-w-0 pr-1">
                                                     <h4
-                                                      className={`text-[13px] font-black truncate leading-tight ${record.type === "income" ? "text-emerald-600" : "text-rose-500"}`}
+                                                      className={`text-[13px] font-black truncate leading-tight ${isIncomeItem(record.type, record.category) ? "text-emerald-600" : "text-rose-500"}`}
                                                     >
-                                                      {record.type === "income"
+                                                      {isIncomeItem(record.type, record.category)
                                                         ? "+"
                                                         : "-"}{" "}
                                                       Rp{" "}
-                                                      {record.amount.toLocaleString(
+                                                      {Math.abs(record.amount).toLocaleString(
                                                         "id-ID",
                                                       )}
                                                     </h4>
